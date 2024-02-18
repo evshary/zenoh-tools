@@ -1,7 +1,10 @@
-use async_std::task::sleep;
 use clap::{App, Arg};
 use futures::prelude::*;
 use futures::select;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::thread;
+use std::thread::sleep;
 use std::time::Duration;
 use zenoh::prelude::r#async::*;
 
@@ -19,21 +22,31 @@ async fn main() {
 
     let subscriber = session.declare_subscriber(&key_expr).res().await.unwrap();
 
+    let counter = Arc::new(AtomicU64::new(0));
+    let mut last_cnt = 0_u64;
+    let counter_result = counter.clone();
+    thread::spawn(move || loop {
+        let current_cnt = counter_result.load(Ordering::SeqCst);
+        println!("frequency: {}", current_cnt - last_cnt);
+        last_cnt = current_cnt;
+        sleep(Duration::from_secs(1));
+    });
+
     println!("Enter 'q' to quit...");
     let mut stdin = async_std::io::stdin();
     let mut input = [0_u8];
     loop {
         select!(
             sample = subscriber.recv_async() => {
-                let sample = sample.unwrap();
-                println!(">> [Subscriber] Received {} ('{}': '{}')",
-                    sample.kind, sample.key_expr.as_str(), sample.value);
+                //let sample = sample.unwrap();
+                //println!(">> [Subscriber] Received {} ('{}': '{}')",
+                //    sample.kind, sample.key_expr.as_str(), sample.value);
+                counter.fetch_add(1, Ordering::SeqCst);
             },
 
             _ = stdin.read_exact(&mut input).fuse() => {
                 match input[0] {
                     b'q' => break,
-                    0 => sleep(Duration::from_secs(1)).await,
                     _ => (),
                 }
             }
